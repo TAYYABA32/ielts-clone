@@ -1,0 +1,355 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://ielts-clone.local/schemas/ielts-test.schema.json",
+  "title": "IELTSTest",
+  "description": "Full structural schema for an IELTS Academic or General Training test, covering Listening, Reading, Writing, and Speaking modules.",
+  "type": "object",
+  "required": ["id", "title", "type", "modules"],
+  "properties": {
+    "id": { "type": "string", "format": "uuid" },
+    "title": { "type": "string", "minLength": 1 },
+    "type": { "type": "string", "enum": ["ACADEMIC", "GENERAL"] },
+    "isPublished": { "type": "boolean", "default": false },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "modules": {
+      "type": "object",
+      "required": ["listening", "reading", "writing", "speaking"],
+      "properties": {
+        "listening": { "$ref": "#/$defs/listeningModule" },
+        "reading": { "$ref": "#/$defs/readingModule" },
+        "writing": { "$ref": "#/$defs/writingModule" },
+        "speaking": { "$ref": "#/$defs/speakingModule" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+
+  "$defs": {
+    "questionType": {
+      "type": "string",
+      "enum": [
+        "MULTIPLE_CHOICE",
+        "TRUE_FALSE_NOT_GIVEN",
+        "MATCHING_HEADINGS",
+        "SENTENCE_COMPLETION",
+        "MAP_LABELING"
+      ]
+    },
+
+    "baseQuestion": {
+      "type": "object",
+      "required": ["id", "order", "type", "points"],
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "order": { "type": "integer", "minimum": 1 },
+        "type": { "$ref": "#/$defs/questionType" },
+        "points": { "type": "number", "default": 1, "minimum": 0 },
+        "prompt": { "type": "string" }
+      }
+    },
+
+    "multipleChoiceQuestion": {
+      "allOf": [
+        { "$ref": "#/$defs/baseQuestion" },
+        {
+          "type": "object",
+          "required": ["options", "correctAnswer"],
+          "properties": {
+            "type": { "const": "MULTIPLE_CHOICE" },
+            "allowMultipleSelect": { "type": "boolean", "default": false },
+            "options": {
+              "type": "array",
+              "minItems": 2,
+              "items": {
+                "type": "object",
+                "required": ["key", "text"],
+                "properties": {
+                  "key": { "type": "string", "pattern": "^[A-H]$" },
+                  "text": { "type": "string" }
+                }
+              }
+            },
+            "correctAnswer": {
+              "oneOf": [
+                { "type": "string", "pattern": "^[A-H]$" },
+                {
+                  "type": "array",
+                  "items": { "type": "string", "pattern": "^[A-H]$" },
+                  "minItems": 1
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+
+    "trueFalseNotGivenQuestion": {
+      "allOf": [
+        { "$ref": "#/$defs/baseQuestion" },
+        {
+          "type": "object",
+          "required": ["statement", "correctAnswer"],
+          "properties": {
+            "type": { "const": "TRUE_FALSE_NOT_GIVEN" },
+            "statement": { "type": "string" },
+            "correctAnswer": {
+              "type": "string",
+              "enum": ["TRUE", "FALSE", "NOT_GIVEN"]
+            }
+          }
+        }
+      ]
+    },
+
+    "matchingHeadingsQuestion": {
+      "description": "One paragraph-to-heading pairing within a Matching Headings group. The full list of candidate headings lives on the parent question group (groupData.headings) since it is shared across all questions in the group.",
+      "allOf": [
+        { "$ref": "#/$defs/baseQuestion" },
+        {
+          "type": "object",
+          "required": ["paragraphLabel", "correctAnswer"],
+          "properties": {
+            "type": { "const": "MATCHING_HEADINGS" },
+            "paragraphLabel": { "type": "string", "description": "e.g. 'Paragraph A'" },
+            "correctAnswer": { "type": "string", "description": "Heading key, e.g. 'iv'" }
+          }
+        }
+      ]
+    },
+
+    "sentenceCompletionQuestion": {
+      "allOf": [
+        { "$ref": "#/$defs/baseQuestion" },
+        {
+          "type": "object",
+          "required": ["textWithBlank", "correctAnswer", "maxWords"],
+          "properties": {
+            "type": { "const": "SENTENCE_COMPLETION" },
+            "textWithBlank": {
+              "type": "string",
+              "description": "Sentence with a placeholder, e.g. 'The museum was built in ___.'"
+            },
+            "maxWords": { "type": "integer", "minimum": 1, "default": 3 },
+            "correctAnswer": {
+              "oneOf": [
+                { "type": "string" },
+                { "type": "array", "items": { "type": "string" }, "minItems": 1 }
+              ],
+              "description": "Single accepted answer, or array of acceptable synonym/variant answers."
+            },
+            "caseSensitive": { "type": "boolean", "default": false }
+          }
+        }
+      ]
+    },
+
+    "mapLabelingQuestion": {
+      "allOf": [
+        { "$ref": "#/$defs/baseQuestion" },
+        {
+          "type": "object",
+          "required": ["labelPointId", "correctAnswer"],
+          "properties": {
+            "type": { "const": "MAP_LABELING" },
+            "labelPointId": {
+              "type": "string",
+              "description": "References a point id defined in the parent group's groupData.mapPoints"
+            },
+            "correctAnswer": { "type": "string", "description": "Option key from groupData.options, e.g. 'C'" }
+          }
+        }
+      ]
+    },
+
+    "question": {
+      "oneOf": [
+        { "$ref": "#/$defs/multipleChoiceQuestion" },
+        { "$ref": "#/$defs/trueFalseNotGivenQuestion" },
+        { "$ref": "#/$defs/matchingHeadingsQuestion" },
+        { "$ref": "#/$defs/sentenceCompletionQuestion" },
+        { "$ref": "#/$defs/mapLabelingQuestion" }
+      ]
+    },
+
+    "questionGroup": {
+      "type": "object",
+      "required": ["id", "order", "type", "instructions", "questions"],
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "order": { "type": "integer", "minimum": 1 },
+        "type": { "$ref": "#/$defs/questionType" },
+        "instructions": { "type": "string" },
+        "passageId": { "type": "string", "format": "uuid" },
+        "audioTrackId": { "type": "string", "format": "uuid" },
+        "groupData": {
+          "type": "object",
+          "description": "Shared data for the group. Shape depends on 'type'.",
+          "properties": {
+            "headings": {
+              "type": "array",
+              "description": "MATCHING_HEADINGS only: full candidate heading list.",
+              "items": {
+                "type": "object",
+                "required": ["key", "text"],
+                "properties": {
+                  "key": { "type": "string" },
+                  "text": { "type": "string" }
+                }
+              }
+            },
+            "mapImageUrl": { "type": "string", "format": "uri", "description": "MAP_LABELING only." },
+            "mapPoints": {
+              "type": "array",
+              "description": "MAP_LABELING only: clickable/labeled coordinates on the image.",
+              "items": {
+                "type": "object",
+                "required": ["id", "x", "y"],
+                "properties": {
+                  "id": { "type": "string" },
+                  "x": { "type": "number", "minimum": 0, "maximum": 100 },
+                  "y": { "type": "number", "minimum": 0, "maximum": 100 }
+                }
+              }
+            },
+            "options": {
+              "type": "array",
+              "description": "MAP_LABELING only: the letter/label bank to choose from.",
+              "items": {
+                "type": "object",
+                "required": ["key", "text"],
+                "properties": {
+                  "key": { "type": "string" },
+                  "text": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "questions": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/question" }
+        }
+      }
+    },
+
+    "passage": {
+      "type": "object",
+      "required": ["id", "order", "title", "bodyText"],
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "order": { "type": "integer", "minimum": 1 },
+        "title": { "type": "string" },
+        "bodyText": { "type": "string", "description": "Full passage text, may contain paragraph markers [A], [B], ... for matching-headings reference." }
+      }
+    },
+
+    "audioTrack": {
+      "type": "object",
+      "required": ["id", "order", "audioUrl", "durationSeconds"],
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "order": { "type": "integer", "minimum": 1 },
+        "title": { "type": "string" },
+        "audioUrl": { "type": "string", "format": "uri" },
+        "durationSeconds": { "type": "integer", "minimum": 1 },
+        "transcript": { "type": "string" }
+      }
+    },
+
+    "readingModule": {
+      "type": "object",
+      "required": ["timeLimitMinutes", "passages", "questionGroups"],
+      "properties": {
+        "timeLimitMinutes": { "type": "integer", "default": 60 },
+        "passages": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 3,
+          "items": { "$ref": "#/$defs/passage" }
+        },
+        "questionGroups": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/questionGroup" }
+        }
+      }
+    },
+
+    "listeningModule": {
+      "type": "object",
+      "required": ["timeLimitMinutes", "audioTracks", "questionGroups"],
+      "properties": {
+        "timeLimitMinutes": { "type": "integer", "default": 30 },
+        "audioTracks": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 4,
+          "items": { "$ref": "#/$defs/audioTrack" }
+        },
+        "questionGroups": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/questionGroup" }
+        }
+      }
+    },
+
+    "writingTask": {
+      "type": "object",
+      "required": ["id", "taskNumber", "prompt", "minWords", "timeLimitMinutes"],
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "taskNumber": { "type": "integer", "enum": [1, 2] },
+        "prompt": { "type": "string" },
+        "imageUrl": { "type": "string", "format": "uri", "description": "Chart/graph/map/diagram for Academic Task 1." },
+        "minWords": { "type": "integer" },
+        "timeLimitMinutes": { "type": "integer" }
+      }
+    },
+
+    "writingModule": {
+      "type": "object",
+      "required": ["tasks"],
+      "properties": {
+        "tasks": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": { "$ref": "#/$defs/writingTask" }
+        }
+      }
+    },
+
+    "speakingPart": {
+      "type": "object",
+      "required": ["id", "partNumber", "questions"],
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "partNumber": { "type": "integer", "enum": [1, 2, 3] },
+        "cueCardText": { "type": "string", "description": "Part 2 only." },
+        "prepTimeSeconds": { "type": "integer", "description": "Part 2 only, typically 60." },
+        "speakingTimeSeconds": { "type": "integer", "description": "Part 2 only, typically 120." },
+        "questions": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+
+    "speakingModule": {
+      "type": "object",
+      "required": ["parts"],
+      "properties": {
+        "parts": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": { "$ref": "#/$defs/speakingPart" }
+        }
+      }
+    }
+  }
+}

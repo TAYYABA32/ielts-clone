@@ -1,0 +1,366 @@
+// IELTS Clone — Prisma schema (PostgreSQL)
+// Run: npx prisma migrate dev --name init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  // Pooled (PgBouncer transaction mode, port 6543) — what the running app
+  // uses for regular queries; efficient for many short-lived connections.
+  url       = env("DATABASE_URL")
+  // Direct/session-mode connection (port 5432) — what `prisma migrate`
+  // needs; transaction-mode pooling doesn't support the session-level
+  // features Migrate relies on and just hangs against it.
+  directUrl = env("DIRECT_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Users & Auth
+// ---------------------------------------------------------------------------
+
+enum Role {
+  STUDENT
+  CONTENT_EDITOR
+  ADMIN
+}
+
+// Identity and session management live in Clerk; this row exists to hold
+// the app-specific data Clerk doesn't know about (role, and everything that
+// hangs off it — test attempts, saved progress). Created just-in-time on a
+// user's first authenticated request (see lib/auth/session.ts) rather than
+// via a webhook, so there's no separate signup step on our side.
+model User {
+  id        String   @id @default(uuid())
+  clerkId   String   @unique
+  email     String   @unique
+  name      String
+  role      Role     @default(STUDENT)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  testAttempts  TestAttempt[]
+  savedProgress SavedProgress[]
+
+  @@index([clerkId])
+}
+
+// Autosave: lets a student resume an in-progress attempt after closing the tab.
+model SavedProgress {
+  id            String      @id @default(uuid())
+  userId        String
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  testAttemptId String      @unique
+  testAttempt   TestAttempt @relation(fields: [testAttemptId], references: [id], onDelete: Cascade)
+  responsesJson Json        // snapshot of { [questionId]: userAnswer }
+  flaggedJson   Json        // snapshot of flagged question ids
+  remainingSeconds Int
+  updatedAt     DateTime    @updatedAt
+
+  @@index([userId])
+}
+
+// ---------------------------------------------------------------------------
+// Test Bank
+// ---------------------------------------------------------------------------
+
+enum TestType {
+  ACADEMIC
+  GENERAL
+}
+
+enum ModuleType {
+  LISTENING
+  READING
+  WRITING
+  SPEAKING
+}
+
+enum QuestionType {
+  MULTIPLE_CHOICE
+  TRUE_FALSE_NOT_GIVEN
+  MATCHING_HEADINGS
+  SENTENCE_COMPLETION
+  MAP_LABELING
+}
+
+model Test {
+  id          String   @id @default(uuid())
+  title       String
+  type        TestType
+  isPublished Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  modules      Module[]
+  testAttempts TestAttempt[]
+
+  @@index([type, isPublished])
+}
+
+model Module {
+  id              String     @id @default(uuid())
+  testId          String
+  test            Test       @relation(fields: [testId], references: [id], onDelete: Cascade)
+  type            ModuleType
+  order           Int
+  timeLimitMinutes Int
+
+  passages       Passage[]
+  audioTracks    AudioTrack[]
+  questionGroups QuestionGroup[]
+  writingTasks   WritingTask[]
+  speakingParts  SpeakingPart[]
+  moduleAttempts ModuleAttempt[]
+
+  @@unique([testId, type])
+  @@index([testId])
+}
+
+model Passage {
+  id       String @id @default(uuid())
+  moduleId String
+  module   Module @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  order    Int
+  title    String
+  bodyText String @db.Text
+
+  questionGroups QuestionGroup[]
+
+  @@index([moduleId])
+}
+
+model AudioTrack {
+  id              String @id @default(uuid())
+  moduleId        String
+  module          Module @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  order           Int
+  title           String
+  audioUrl        String
+  durationSeconds Int
+  transcript      String? @db.Text
+
+  questionGroups QuestionGroup[]
+
+  @@index([moduleId])
+}
+
+// A block of questions that share instructions/context (e.g. "Questions 14-20").
+model QuestionGroup {
+  id           String       @id @default(uuid())
+  moduleId     String
+  module       Module       @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  passageId    String?
+  passage      Passage?     @relation(fields: [passageId], references: [id], onDelete: SetNull)
+  audioTrackId String?
+  audioTrack   AudioTrack?  @relation(fields: [audioTrackId], references: [id], onDelete: SetNull)
+  type         QuestionType
+  order        Int
+  instructions String       @db.Text
+  // Shared per-group data whose shape depends on `type`:
+  //  - MATCHING_HEADINGS: { headings: [{key, text}] }
+  //  - MAP_LABELING: { mapImageUrl, mapPoints: [{id,x,y}], options: [{key,text}] }
+  groupData    Json?
+
+  questions Question[]
+
+  @@index([moduleId])
+  @@index([passageId])
+  @@index([audioTrackId])
+}
+
+model Question {
+  id      String   @id @default(uuid())
+  groupId String
+  group   QuestionGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  order   Int
+  prompt  String?  @db.Text
+  points  Float    @default(1)
+
+  // Question-type-specific fields, kept as JSON for flexibility across the 5 types:
+  //  - MULTIPLE_CHOICE: { options: [{key,text}], allowMultipleSelect }
+  //  - TRUE_FALSE_NOT_GIVEN: { statement }
+  //  - MATCHING_HEADINGS: { paragraphLabel }
+  //  - SENTENCE_COMPLETION: { textWithBlank, maxWords, caseSensitive }
+  //  - MAP_LABELING: { labelPointId }
+  data          Json?
+  // Answer key — never sent to the client until after submission.
+  correctAnswer Json
+
+  responses QuestionResponse[]
+
+  @@index([groupId])
+}
+
+model WritingTask {
+  id               String @id @default(uuid())
+  moduleId         String
+  module           Module @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  taskNumber       Int
+  prompt           String @db.Text
+  imageUrl         String?
+  minWords         Int
+  timeLimitMinutes Int
+
+  responses WritingResponse[]
+
+  @@unique([moduleId, taskNumber])
+  @@index([moduleId])
+}
+
+model SpeakingPart {
+  id                  String @id @default(uuid())
+  moduleId            String
+  module              Module @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  partNumber          Int
+  cueCardText         String? @db.Text
+  prepTimeSeconds     Int?
+  speakingTimeSeconds Int?
+  questions           Json   // string[]
+
+  responses SpeakingResponse[]
+
+  @@unique([moduleId, partNumber])
+  @@index([moduleId])
+}
+
+// A candidate's written essay for one Writing task within one module attempt.
+// Never auto-graded — bandScore lives on the parent ModuleAttempt and is set
+// by an examiner via the admin CMS.
+model WritingResponse {
+  id               String      @id @default(uuid())
+  moduleAttemptId  String
+  moduleAttempt    ModuleAttempt @relation(fields: [moduleAttemptId], references: [id], onDelete: Cascade)
+  writingTaskId    String
+  writingTask      WritingTask @relation(fields: [writingTaskId], references: [id], onDelete: Cascade)
+  responseText     String      @db.Text
+  wordCount        Int
+  timeSpentSeconds Int         @default(0)
+  submittedAt      DateTime?
+
+  @@unique([moduleAttemptId, writingTaskId])
+  @@index([moduleAttemptId])
+}
+
+// A candidate's recorded audio answer for one Speaking part within one
+// module attempt. Like Writing, always examiner-scored.
+model SpeakingResponse {
+  id               String       @id @default(uuid())
+  moduleAttemptId  String
+  moduleAttempt    ModuleAttempt @relation(fields: [moduleAttemptId], references: [id], onDelete: Cascade)
+  speakingPartId   String
+  speakingPart     SpeakingPart @relation(fields: [speakingPartId], references: [id], onDelete: Cascade)
+  audioUrl         String
+  durationSeconds  Int
+  submittedAt      DateTime?
+
+  @@unique([moduleAttemptId, speakingPartId])
+  @@index([moduleAttemptId])
+}
+
+// ---------------------------------------------------------------------------
+// User Test Attempts
+// ---------------------------------------------------------------------------
+
+enum AttemptStatus {
+  IN_PROGRESS
+  SUBMITTED
+  EXPIRED
+  ABANDONED
+}
+
+model TestAttempt {
+  id           String        @id @default(uuid())
+  userId       String
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  testId       String
+  test         Test          @relation(fields: [testId], references: [id], onDelete: Cascade)
+  status       AttemptStatus @default(IN_PROGRESS)
+  startedAt    DateTime      @default(now())
+  submittedAt  DateTime?
+  overallBand  Float?        // rounded average across L/R/W/S, per IELTS rounding rules
+
+  moduleAttempts ModuleAttempt[]
+  savedProgress  SavedProgress?
+
+  @@index([userId])
+  @@index([testId])
+}
+
+model ModuleAttempt {
+  id              String     @id @default(uuid())
+  testAttemptId   String
+  testAttempt     TestAttempt @relation(fields: [testAttemptId], references: [id], onDelete: Cascade)
+  moduleId        String
+  module          Module     @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  rawScore        Float?
+  maxRawScore     Float?
+  bandScore       Float?
+  examinerNotes   String?    @db.Text // Writing/Speaking only — examiner's written feedback alongside the band score
+  timeSpentSeconds Int       @default(0)
+
+  responses         QuestionResponse[]
+  writingResponses  WritingResponse[]
+  speakingResponses SpeakingResponse[]
+
+  @@unique([testAttemptId, moduleId])
+  @@index([testAttemptId])
+}
+
+model QuestionResponse {
+  id               String        @id @default(uuid())
+  moduleAttemptId  String
+  moduleAttempt    ModuleAttempt @relation(fields: [moduleAttemptId], references: [id], onDelete: Cascade)
+  questionId       String
+  question         Question      @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  userAnswer       Json?
+  isCorrect        Boolean?
+  timeSpentSeconds Int           @default(0)
+  flagged          Boolean       @default(false)
+  answeredAt       DateTime?
+
+  @@unique([moduleAttemptId, questionId])
+  @@index([moduleAttemptId])
+  @@index([questionId])
+}
+
+// Raw-score -> band-score lookup table, distinct per test type + module,
+// since Listening/Reading (and Academic vs General Reading) use different tables.
+model BandScoreConversion {
+  id         String     @id @default(uuid())
+  testType   TestType
+  moduleType ModuleType
+  minRaw     Int
+  maxRaw     Int
+  band       Float
+
+  @@unique([testType, moduleType, minRaw, maxRaw])
+  @@index([testType, moduleType])
+}
+
+// ---------------------------------------------------------------------------
+// Audit Log
+// ---------------------------------------------------------------------------
+
+// Durable record of privileged actions (examiner grading today; role changes
+// and content deletion are natural additions once those features exist).
+// Deliberately NOT a foreign key to User: deleting a user account must never
+// cascade-delete or orphan audit history, and actorName/actorEmail are
+// snapshotted at write time so the record stays accurate even if the user's
+// profile changes later or the account itself is eventually removed.
+model AuditLog {
+  id         String   @id @default(uuid())
+  actorId    String
+  actorName  String
+  actorEmail String
+  action     String
+  targetType String
+  targetId   String
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  @@index([actorId])
+  @@index([targetType, targetId])
+  @@index([createdAt])
+}

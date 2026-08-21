@@ -1,0 +1,9 @@
+{
+  "extends": ["next/core-web-vitals", "next/typescript"],
+  "rules": {
+    // Lets `const { fieldToDrop, ...rest } = obj` discard a field without
+    // renaming it to `_fieldToDrop` — used to strip Question.correctAnswer
+    // before a client-safe object is built (lib/mappers/toClientModule.ts).
+    "@typescript-eslint/no-unused-vars": ["error", { "ignoreRestSiblings": true }]
+  }
+}

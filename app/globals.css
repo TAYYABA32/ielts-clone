@@ -1,0 +1,107 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+  Baseline element styling, applied by tag rather than by class name.
+  Most screens in this app (test engine, dashboard, admin CMS) were built
+  with semantic BEM-style class names (e.g. "ielts-timer") before Tailwind
+  was wired up, so they don't carry Tailwind utility classes yet. These
+  @layer base rules give every page a consistent, modern look-and-feel out
+  of the box without requiring every component to be rewritten first.
+*/
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply min-h-screen bg-gray-50 text-gray-900 antialiased;
+  }
+
+  h1 {
+    @apply text-2xl font-semibold tracking-tight text-gray-900;
+  }
+
+  h2 {
+    @apply text-xl font-semibold tracking-tight text-gray-900;
+  }
+
+  h3 {
+    @apply text-lg font-semibold text-gray-900;
+  }
+
+  a {
+    @apply text-brand-600 underline-offset-2 hover:text-brand-700 hover:underline;
+  }
+
+  label {
+    @apply block text-sm font-medium text-gray-700;
+  }
+
+  input,
+  select,
+  textarea {
+    @apply mt-1 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm placeholder:text-gray-400 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40;
+  }
+
+  button {
+    @apply inline-flex items-center justify-center rounded-md bg-brand-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  table {
+    @apply w-full border-collapse text-left text-sm;
+  }
+
+  th {
+    @apply border-b border-gray-200 bg-gray-100 px-3 py-2 font-medium text-gray-700;
+  }
+
+  td {
+    @apply border-b border-gray-100 px-3 py-2 text-gray-800;
+  }
+}
+
+/*
+  Partner logo marquee (PartnerLogoMarquee.tsx). Each row renders its item
+  list twice back-to-back, then translates by exactly -50% of its own
+  width — since the second half is an identical copy of the first, the
+  animation loops with no visible seam/jump/reset. "-right" is just the
+  reverse of "-left" (0 -> -50% vs -50% -> 0) so the two rows can scroll
+  in opposite directions using the same duplicated-list technique.
+*/
+@keyframes marquee-left {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@keyframes marquee-right {
+  from {
+    transform: translateX(-50%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+/*
+  Sitewide prefers-reduced-motion: cuts every CSS transition/animation down
+  to effectively instant and turns off smooth-scroll, so anchor links (the
+  footer's /#faq, /#partners, /#students) jump instead of animating. The
+  hero carousel's autoplay is disabled separately in JS (HeroCarousel.tsx)
+  since that's a behavioral, not purely visual, effect this rule can't reach.
+*/
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

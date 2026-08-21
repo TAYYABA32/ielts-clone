@@ -1,0 +1,26 @@
+# dependencies
+/node_modules
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# env files (all of them, real secrets live here) — SECURITY_AUDIT.md M5:
+# the previous `.env` + `.env*.local` pair missed non-.local variants like
+# `.env.production`/`.env.development`, a real Next.js convention this
+# project doesn't use yet but would silently NOT be gitignored if adopted.
+# `.env*` covers every variant; the negation keeps the checked-in template.
+.env*
+!.env.example
+
+# misc
+.DS_Store
+*.pem
+npm-debug.log*
+tsconfig.tsbuildinfo
+
+# public uploads (user-generated, not source)
+/public/uploads
